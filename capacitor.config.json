@@ -1,0 +1,9 @@
+{
+  "appId": "com.golf.lan",
+  "appName": "Mini Golf LAN",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}

@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Mini Golf LAN</title>
+<style>
+  :root{--ink:#14202b;--panel:rgba(20,32,43,.92);--line:#2c4153;--text:#e8eef3;--muted:#9bb0c0;--accent:#e3a63b;--ok:#6cc08b;--danger:#e0645c}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;color:var(--text);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    background:linear-gradient(#7db7e0,#d6ecfa);overscroll-behavior:none}
+  canvas#c{position:fixed;inset:0;width:100%;height:100%;touch-action:none;display:block}
+  .hidden{display:none!important}
+  button,input{font:inherit}
+  button{background:var(--accent);color:#1b1304;border:0;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer}
+  button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  button:disabled{opacity:.45}
+  input{background:#0e1721;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:12px;width:100%}
+  .screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));background:rgba(10,18,26,.55);z-index:5}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;width:100%;max-width:420px;display:grid;gap:12px;max-height:100%;overflow:auto}
+  h1{margin:0;font-size:1.7rem;letter-spacing:-.02em}
+  h2{margin:0;font-size:1.2rem}
+  p{margin:0;color:var(--muted);font-size:.92rem;line-height:1.45}
+  .row{display:flex;gap:8px}.row>*{flex:1}
+  .big{font-size:1.5rem;font-weight:800;letter-spacing:.05em;color:var(--text);text-align:center;padding:10px;background:#0e1721;border-radius:10px;border:1px dashed var(--line)}
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:2;padding:max(10px,env(safe-area-inset-top)) 10px max(12px,env(safe-area-inset-bottom));display:flex;flex-direction:column;justify-content:space-between}
+  #hud .top{display:flex;justify-content:space-between;gap:8px}
+  .pill{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:.85rem;font-weight:600;display:flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  #hud .bottom{display:flex;align-items:center;gap:10px;pointer-events:auto}
+  #hud .bottom button{width:48px;height:48px;padding:0;font-size:1.2rem;background:var(--panel);color:var(--text);border:1px solid var(--line)}
+  #pwr{flex:1;height:14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  #pwrFill{display:block;height:100%;width:0;background:linear-gradient(90deg,#6cc08b,#e3a63b,#e0645c)}
+  #hint{text-align:center;font-size:.85rem;color:#0f2433;font-weight:600;margin-bottom:6px;text-shadow:0 1px 0 rgba(255,255,255,.5)}
+  #toast{position:fixed;left:50%;top:max(64px,calc(env(safe-area-inset-top) + 54px));transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);padding:9px 14px;border-radius:10px;font-size:.9rem;z-index:9;max-width:90%;text-align:center}
+  table{width:100%;border-collapse:collapse;font-size:.95rem}
+  th,td{padding:6px 4px;text-align:center;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600}
+  .err{color:var(--danger);font-size:.88rem;min-height:1.1em}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hidden">
+  <div class="top">
+    <div class="pill" id="hHole"></div>
+    <div class="pill" id="hTurn"></div>
+    <div class="pill" id="hStroke"></div>
+  </div>
+  <div>
+    <div id="hint"></div>
+    <div class="bottom">
+      <button id="bL" aria-label="Putar kiri">◀</button>
+      <div id="pwr"><i id="pwrFill"></i></div>
+      <button id="bZ" aria-label="Zoom">⤢</button>
+      <button id="bR" aria-label="Putar kanan">▶</button>
+    </div>
+  </div>
+</div>
+
+<div id="menu" class="screen">
+  <div class="card">
+    <h1>⛳ Mini Golf LAN</h1>
+    <p>Main berdua lewat Wi-Fi yang sama, tanpa internet. Nyalakan hotspot di HP host, lalu pemain kedua menyambung ke Wi-Fi itu.</p>
+    <button id="btnHost">Jadi host (buat permainan)</button>
+    <button id="btnFind" class="ghost">Gabung: cari otomatis</button>
+    <div class="row">
+      <input id="ipInput" inputmode="decimal" placeholder="IP host, mis. 192.168.43.1" autocomplete="off">
+      <button id="btnIp" class="ghost" style="flex:0 0 auto">Sambung</button>
+    </div>
+    <button id="btnLocal" class="ghost">Latihan: 1 HP, gantian</button>
+    <div class="err" id="menuErr"></div>
+  </div>
+</div>
+
+<div id="wait" class="screen hidden">
+  <div class="card">
+    <h2 id="waitTitle">Menunggu lawan…</h2>
+    <p id="waitText"></p>
+    <div class="big" id="waitIp">—</div>
+    <button id="btnCancel" class="ghost">Batal</button>
+  </div>
+</div>
+
+<div id="score" class="screen hidden">
+  <div class="card">
+    <h2 id="scoreTitle"></h2>
+    <table id="scoreTable"></table>
+    <p id="scoreNote"></p>
+    <div class="row" id="scoreBtns"></div>
+  </div>
+</div>
+<div id="toast" class="hidden"></div>
+
+<script src="three.min.js"></script>
+<script>if(!window.THREE){document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>')}</script>
+
+<script id="phys">
+// ====================== FISIKA & LINTASAN (murni, tanpa DOM) ======================
+const BALL_R = 0.22, WALL_PAD = 0.08, HOLE_R = 0.5, MAX_SPEED = 13, FRIC = 3.2, SAND_FRIC = 16;
+const STOP_V = 0.18, DT = 1/240, REST = 0.78, MAX_STROKES = 7;
+
+const COURSES = [
+  { name:'Lurus', par:2,
+    poly:[[-3,-10],[3,-10],[3,10],[-3,10]],
+    obstacles:[[[-1.6,-1],[0.4,-1],[0.4,1],[-1.6,1]]],
+    bumpers:[], sand:[], tee:[0,8], hole:[0,-8] },
+  { name:'Tikungan', par:3,
+    poly:[[-3,10],[3,10],[3,-2],[12,-2],[12,-8],[-3,-8]],
+    obstacles:[], bumpers:[{x:0,z:-5,r:0.7}],
+    sand:[{x0:6.5,x1:8,z0:-8,z1:-2}], tee:[0,8], hole:[9.5,-5] },
+  { name:'Gerbang', par:3,
+    poly:[[-4,-11],[4,-11],[4,11],[-4,11]],
+    obstacles:[[[-4,3],[-0.8,3],[-0.8,4],[-4,4]], [[0.8,-2],[4,-2],[4,-1],[0.8,-1]]],
+    bumpers:[{x:0,z:-6,r:0.6}], sand:[{x0:-4,x1:-1,z0:-9,z1:-7}], tee:[0,9.5], hole:[0,-9] }
+];
+
+function buildSegs(c){
+  const segs = [];
+  const add = pts => { for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i+1) % pts.length]; segs.push([a[0],a[1],b[0],b[1]]); } };
+  add(c.poly); c.obstacles.forEach(add);
+  return segs;
+}
+function collideSeg(b, s){
+  const x1=s[0], z1=s[1], dx=s[2]-x1, dz=s[3]-z1, l2=dx*dx+dz*dz, R=BALL_R+WALL_PAD;
+  let t = ((b.x-x1)*dx + (b.z-z1)*dz) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const cx = x1+t*dx, cz = z1+t*dz;
+  let nx = b.x-cx, nz = b.z-cz, d = Math.hypot(nx, nz);
+  if (d >= R) return;
+  if (d < 1e-6) { const L = Math.sqrt(l2); nx = -dz/L; nz = dx/L; } else { nx /= d; nz /= d; }
+  b.x = cx + nx*R; b.z = cz + nz*R;
+  const vn = b.vx*nx + b.vz*nz;
+  if (vn < 0) { b.vx -= (1+REST)*vn*nx; b.vz -= (1+REST)*vn*nz; }
+}
+function inSand(c, x, z){ for (const s of c.sand) if (x>=s.x0 && x<=s.x1 && z>=s.z0 && z<=s.z1) return true; return false; }
+
+// Satu langkah fisika. Hasil: 'rolling' | 'stopped' | 'holed'
+function step(b, c, segs){
+  b.x += b.vx*DT; b.z += b.vz*DT;
+  for (let i = 0; i < segs.length; i++) collideSeg(b, segs[i]);
+  for (const m of c.bumpers) {
+    const dx = b.x-m.x, dz = b.z-m.z, d = Math.hypot(dx, dz), R = m.r + BALL_R;
+    if (d < R && d > 1e-6) {
+      const nx = dx/d, nz = dz/d;
+      b.x = m.x + nx*R; b.z = m.z + nz*R;
+      const vn = b.vx*nx + b.vz*nz;
+      if (vn < 0) {
+        b.vx -= 2*vn*nx; b.vz -= 2*vn*nz;
+        const sp = Math.hypot(b.vx, b.vz), ns = Math.max(sp*1.08, 3.2);
+        b.vx *= ns/sp; b.vz *= ns/sp;
+      }
+    }
+  }
+  let sp = Math.hypot(b.vx, b.vz);
+  const fr = inSand(c, b.x, b.z) ? SAND_FRIC : FRIC;
+  const ns = Math.max(0, sp - fr*DT);
+  if (sp > 0) { b.vx *= ns/sp; b.vz *= ns/sp; }
+  sp = ns;
+  const hx = c.hole[0]-b.x, hz = c.hole[1]-b.z, dh = Math.hypot(hx, hz);
+  if (dh < HOLE_R && sp < 7) return 'holed';
+  if (dh < HOLE_R*1.7 && sp < 4 && dh > 1e-6) { b.vx += hx/dh*5*DT; b.vz += hz/dh*5*DT; }  // corong halus
+  if (sp < STOP_V) { b.vx = b.vz = 0; return 'stopped'; }
+  return 'rolling';
+}
+function pointInPoly(p, x, z){
+  let inside = false;
+  for (let i = 0, j = p.length-1; i < p.length; j = i++) {
+    const xi=p[i][0], zi=p[i][1], xj=p[j][0], zj=p[j][1];
+    if (((zi > z) !== (zj > z)) && (x < (xj-xi)*(z-zi)/(zj-zi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+</script>
+
+<script>
+// ====================== APLIKASI ======================
+const PORT = 8765;
+const $ = id => document.getElementById(id);
+const COLORS = ['#f4f4f0', '#ff8a3d'];          // bola pemain 0 (host) dan 1 (tamu)
+
+let mode = null;                                // 'host' | 'guest' | 'local'
+let me = 0, G = null, course = null, segs = null;
+let sim = null, localRolling = false, remoteRolling = false, remoteT = null, lastPosSent = 0;
+let yaw = 0, zoomFar = false, aim = null, drag = null;
+let ws = null, peerUuid = null, WSP = null, peerOnline = false, advanceTimer = null;
+
+// ---------- util ----------
+function toast(msg, ms = 2200){
+  const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add('hidden'), ms);
+}
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const nameOf = p => mode === 'local' ? 'Pemain ' + (p+1) : (p === me ? 'Kamu' : 'Lawan');
+function findPlugin(){
+  const P = window.Capacitor && window.Capacitor.Plugins; if (!P) return null;
+  if (P.WebsocketServer) return P.WebsocketServer;
+  if (P.WebSocketServer) return P.WebSocketServer;
+  try { for (const k of Object.keys(P)) if (/websocketserver/i.test(k)) return P[k]; } catch {}
+  return null;
+}
+async function localIPv4s(){
+  const W = findPlugin(); if (!W || !W.getInterfaces) return [];
+  try {
+    const ifs = await W.getInterfaces(); const out = [];
+    for (const k of Object.keys(ifs)) {
+      if (/^(lo|rmnet|ccmni|tun|dummy|v4-|ppp|p2p|clat)/i.test(k)) continue;      // abaikan seluler & virtual
+      for (const ip of (ifs[k].ipv4Addresses || [])) if (!ip.startsWith('127.') && !ip.startsWith('169.254.')) out.push(ip);
+    }
+    return out;
+  } catch { return []; }
+}
+
+// ---------- 3D ----------
+let renderer, scene, camera, courseGroup, ballMeshes = [], aimGroup, aimMat, flagMesh;
+const camTarget = new THREE.Vector3(), camPos = new THREE.Vector3();
+
+function initThree(){
+  renderer = new THREE.WebGLRenderer({ canvas: $('c'), antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(48, 1, 0.1, 200);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x3d6b45, 0.95));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(6, 14, 8); scene.add(sun);
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 40), new THREE.MeshLambertMaterial({ color: 0x4f8f55 }));
+  ground.rotation.x = -Math.PI/2; ground.position.y = -0.45; scene.add(ground);
+  courseGroup = new THREE.Group(); scene.add(courseGroup);
+  for (let p = 0; p < 2; p++) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 18, 14), new THREE.MeshLambertMaterial({ color: COLORS[p] }));
+    m.position.y = BALL_R; scene.add(m); ballMeshes.push(m);
+  }
+  aimMat = new THREE.MeshBasicMaterial({ color: 0xe3a63b });
+  aimGroup = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 1), aimMat); shaft.position.z = 0.5; shaft.name = 'shaft';
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.55, 14), aimMat); head.rotation.x = Math.PI/2; head.name = 'head';
+  aimGroup.add(shaft, head); aimGroup.visible = false; aimGroup.position.y = 0.06; scene.add(aimGroup);
+  resize(); window.addEventListener('resize', resize);
+}
+function resize(){
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+function disposeGroup(g){
+  while (g.children.length) {
+    const o = g.children.pop();
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
+  }
+}
+function polyShape(pts){ const s = new THREE.Shape(); pts.forEach((p, i) => i ? s.lineTo(p[0], -p[1]) : s.moveTo(p[0], -p[1])); s.closePath(); return s; }
+
+function buildCourseMesh(c){
+  disposeGroup(courseGroup);
+  const grass = new THREE.MeshLambertMaterial({ color: 0x5fbf6f, flatShading: true });
+  const base = new THREE.MeshLambertMaterial({ color: 0x7a5a3a, flatShading: true });
+  const wood = new THREE.MeshLambertMaterial({ color: 0xc9a066, flatShading: true });
+  const cream = new THREE.MeshLambertMaterial({ color: 0xece4cf, flatShading: true });
+  // lantai
+  const fg = new THREE.ExtrudeGeometry(polyShape(c.poly), { depth: 0.4, bevelEnabled: false });
+  fg.rotateX(-Math.PI/2); fg.translate(0, -0.4, 0);
+  courseGroup.add(new THREE.Mesh(fg, [grass, base]));
+  // dinding luar
+  const wall = (a, b) => {
+    const dx = b[0]-a[0], dz = b[1]-a[1], len = Math.hypot(dx, dz);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(len + 0.16, 0.5, 0.16), cream);
+    m.position.set((a[0]+b[0])/2, 0.25, (a[1]+b[1])/2); m.rotation.y = -Math.atan2(dz, dx); courseGroup.add(m);
+  };
+  c.poly.forEach((p, i) => wall(p, c.poly[(i+1) % c.poly.length]));
+  // rintangan
+  c.obstacles.forEach(o => {
+    const g = new THREE.ExtrudeGeometry(polyShape(o), { depth: 0.55, bevelEnabled: false }); g.rotateX(-Math.PI/2);
+    courseGroup.add(new THREE.Mesh(g, wood));
+  });
+  // pasir
+  c.sand.forEach(s => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(s.x1-s.x0, 0.03, s.z1-s.z0), new THREE.MeshLambertMaterial({ color: 0xe8cd85 }));
+    m.position.set((s.x0+s.x1)/2, 0.012, (s.z0+s.z1)/2); courseGroup.add(m);
+  });
+  // bumper
+  c.bumpers.forEach(b => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(b.r, b.r, 0.6, 18), new THREE.MeshLambertMaterial({ color: 0xd9534f, flatShading: true }));
+    m.position.set(b.x, 0.3, b.z); courseGroup.add(m);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(b.r*0.7, b.r*0.7, 0.08, 18), new THREE.MeshLambertMaterial({ color: 0xf2f2f2 }));
+    cap.position.set(b.x, 0.62, b.z); courseGroup.add(cap);
+  });
+  // lubang + bendera
+  const hole = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R, 28), new THREE.MeshBasicMaterial({ color: 0x0a0e12 }));
+  hole.rotation.x = -Math.PI/2; hole.position.set(c.hole[0], 0.02, c.hole[1]); courseGroup.add(hole);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 8), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+  pole.position.set(c.hole[0], 1.2, c.hole[1]); courseGroup.add(pole);
+  const flag = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.03), new THREE.MeshLambertMaterial({ color: 0xe0443c }));
+  flag.position.set(c.hole[0] + 0.4, 2.1, c.hole[1]); courseGroup.add(flag);
+  // tee
+  const tee = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }));
+  tee.rotation.x = -Math.PI/2; tee.position.set(c.tee[0], 0.015, c.tee[1]); courseGroup.add(tee);
+}
+
+function defaultYaw(c){
+  const dx = c.hole[0]-c.tee[0], dz = c.hole[1]-c.tee[1], L = Math.hypot(dx, dz);
+  return Math.atan2(-dx/L, -dz/L);
+}
+function updateCamera(dt){
+  const R = zoomFar ? 15 : 9.5, H = zoomFar ? 19 : 11.5;
+  let tx, tz;
+  if (G && (G.phase === 'between' || G.phase === 'over')) { tx = course.hole[0]; tz = course.hole[1]; }
+  else { const m = ballMeshes[G ? G.turn : 0]; tx = m.position.x; tz = m.position.z; }
+  const k = Math.min(1, dt * 4);
+  camTarget.x += (tx - camTarget.x) * k; camTarget.z += (tz - camTarget.z) * k;
+  const wx = camTarget.x + Math.sin(yaw)*R, wz = camTarget.z + Math.cos(yaw)*R;
+  camPos.x += (wx - camPos.x) * k; camPos.y += (H - camPos.y) * k; camPos.z += (wz - camPos.z) * k;
+  camera.position.copy(camPos); camera.lookAt(camTarget.x, 0, camTarget.z);
+}
+
+// ---------- state permainan ----------
+function newGame(){
+  const c = COURSES[0];
+  return { hole: 0, strokes: [0,0], done: [false,false], holed: [false,false],
+    ball: [{x:c.tee[0], z:c.tee[1]}, {x:c.tee[0], z:c.tee[1]}], turn: 0, phase: 'aim', scores: [[],[]], first: 0 };
+}
+function loadHole(i, snap){
+  course = COURSES[i]; segs = buildSegs(course); buildCourseMesh(course);
+  yaw = defaultYaw(course);
+  syncMeshes(true);
+  if (!snap) {
+    // posisi awal sudah diatur oleh pemanggil
+  }
+}
+function syncMeshes(snapCam){
+  for (let p = 0; p < 2; p++) {
+    ballMeshes[p].userData.sink = 0;
+    ballMeshes[p].visible = !G.holed[p];
+    ballMeshes[p].scale.setScalar(1);
+    ballMeshes[p].position.set(G.ball[p].x, BALL_R, G.ball[p].z);
+  }
+  if (snapCam) {
+    const m = ballMeshes[G.turn]; camTarget.set(m.position.x, 0, m.position.z);
+    camPos.set(camTarget.x + Math.sin(yaw)*9.5, 11.5, camTarget.z + Math.cos(yaw)*9.5);
+  }
+}
+function canShoot(){
+  if (!G || G.phase !== 'aim' || localRolling || remoteRolling) return false;
+  if (mode === 'local') return true;
+  if (mode === 'host' && !peerOnline) return false;
+  return G.turn === me;
+}
+function updateHud(){
+  if (!G) return;
+  $('hHole').textContent = `Lubang ${G.hole+1}/${COURSES.length} · Par ${course.par}`;
+  const t = G.phase === 'aim' || G.phase === 'roll' ? G.turn : null;
+  $('hTurn').innerHTML = t === null ? '' : `<span class="dot" style="background:${COLORS[t]};border:1px solid #0006"></span>${t === me || mode === 'local' ? (mode === 'local' ? nameOf(t) : 'Giliranmu') : 'Giliran lawan'}`;
+  $('hStroke').textContent = `Pukulan: ${G.strokes[t === null ? 0 : t]}`;
+  let hint = '';
+  if (mode === 'host' && !peerOnline) hint = 'Lawan terputus. Menunggu tersambung kembali…';
+  else if (G.phase === 'aim') hint = canShoot() ? 'Tarik ke belakang, lalu lepas untuk memukul' : 'Menunggu pukulan lawan…';
+  $('hint').textContent = hint;
+}
+
+// ---------- jaringan ----------
+function send(m){
+  const s = JSON.stringify(m);
+  try {
+    if (mode === 'host' && peerUuid && WSP) { const r = WSP.send({ uuid: peerUuid, message: s }); if (r && r.catch) r.catch(() => {}); }
+    else if (mode === 'guest' && ws && ws.readyState === 1) ws.send(s);
+  } catch {}
+}
+function onNet(m){
+  if (!m || !m.t) return;
+  if (m.t === 'ready') { if (mode === 'host') send({ t: 'sync', G }); }
+  else if (m.t === 'sync') { applySync(m.G); }
+  else if (m.t === 'shot') { if (G) { G.turn = m.p; G.strokes[m.p] = m.strokes; G.phase = 'roll'; remoteRolling = true; remoteT = { x: G.ball[m.p].x, z: G.ball[m.p].z }; updateHud(); } }
+  else if (m.t === 'pos') { remoteT = { x: m.x, z: m.z }; }
+  else if (m.t === 'end') { remoteRolling = false; applyEnd(m.p, m.x, m.z, m.holed); }
+  else if (m.t === 'restart') { restartGame(true); }
+}
+function applySync(g){
+  G = g; remoteRolling = false; localRolling = false; clearTimeout(advanceTimer);
+  showOnly('game'); loadHole(G.hole, true); updateHud();
+  if (G.phase === 'between') scheduleAdvance(); else if (G.phase === 'over') showFinal();
+}
+function showOnly(w){
+  $('menu').classList.toggle('hidden', w !== 'menu');
+  $('wait').classList.toggle('hidden', w !== 'wait');
+  $('hud').classList.toggle('hidden', w !== 'game');
+  if (w !== 'game') $('score').classList.add('hidden');
+}
+
+// host
+async function startHost(){
+  WSP = findPlugin();
+  if (!WSP) { $('menuErr').textContent = 'Mode host hanya tersedia di aplikasi (APK).'; return; }
+  mode = 'host'; me = 0; G = newGame(); peerUuid = null; peerOnline = false;
+  try { await WSP.removeAllListeners(); } catch {}
+  WSP.addListener('onOpen', ev => {
+    const c = ev.connection;
+    if (peerUuid) { try { WSP.close({ uuid: c.uuid, code: 1000, reason: 'penuh' }); } catch {} return; }
+    peerUuid = c.uuid; peerOnline = true;
+    send({ t: 'hello', game: 'minigolf', v: 1 });
+    toast('Lawan tersambung');
+    if (!$('wait').classList.contains('hidden')) { showOnly('game'); loadHole(G.hole); }
+    updateHud();
+  });
+  WSP.addListener('onMessage', ev => { if (ev.uuid !== peerUuid) return; try { onNet(JSON.parse(ev.message)); } catch {} });
+  WSP.addListener('onClose', ev => { if (ev.uuid === peerUuid) { peerUuid = null; peerOnline = false; toast('Lawan terputus'); updateHud(); } });
+  WSP.addListener('onFailure', ev => toast('Server gagal: ' + (ev.reason || '?'), 4000));
+  try {
+    await WSP.start({ port: PORT, tcpNoDelay: true });
+  } catch (e) { $('menuErr').textContent = 'Gagal memulai server: ' + (e && e.message || e); mode = null; return; }
+  const ips = await localIPv4s();
+  showOnly('wait');
+  $('waitTitle').textContent = 'Menunggu lawan…';
+  $('waitText').textContent = 'Nyalakan hotspot (atau pakai Wi-Fi yang sama). Di HP lawan pilih "Gabung: cari otomatis", atau ketik IP di bawah. Jangan tutup aplikasi ini.';
+  $('waitIp').textContent = ips.length ? ips.join('  ·  ') : 'IP tidak terdeteksi. Cek di pengaturan Wi-Fi/hotspot';
+  keepAwake();
+}
+
+// tamu
+function probe(ip, timeout = 900){
+  return new Promise((resolve, reject) => {
+    let ok = false, sock;
+    try { sock = new WebSocket(`ws://${ip}:${PORT}`); } catch { return reject(); }
+    const to = setTimeout(() => { try { sock.close(); } catch {} reject(); }, timeout);
+    sock.onmessage = e => { try { const m = JSON.parse(e.data); if (m.t === 'hello' && m.game === 'minigolf') { ok = true; clearTimeout(to); resolve(sock); } } catch {} };
+    sock.onerror = () => { clearTimeout(to); reject(); };
+    sock.onclose = () => { if (!ok) { clearTimeout(to); reject(); } };
+  });
+}
+async function discover(){
+  const own = await localIPv4s();
+  const prefixes = [...new Set(own.map(ip => ip.split('.').slice(0, 3).join('.')))].slice(0, 2);
+  if (!prefixes.length) throw new Error('noip');
+  const ips = [];
+  for (const p of prefixes) { ips.push(p + '.1'); for (let i = 2; i <= 254; i++) ips.push(p + '.' + i); }
+  const BATCH = 32;
+  for (let i = 0; i < ips.length; i += BATCH) {
+    const batch = ips.slice(i, i + BATCH);
+    $('waitText').textContent = `Memeriksa ${batch[0]} – ${batch[batch.length-1]}…`;
+    const hit = await new Promise(resolve => {
+      let pending = batch.length, done = false;
+      batch.forEach(ip => probe(ip).then(sock => {
+        if (done) { try { sock.close(); } catch {} } else { done = true; resolve({ ip, sock }); }
+      }, () => { if (--pending === 0 && !done) resolve(null); }));
+    });
+    if (hit) return hit;
+  }
+  return null;
+}
+function attachGuest(ip, sock){
+  mode = 'guest'; me = 1; ws = sock; lsSet('golf:ip', ip);
+  ws.onmessage = e => { try { onNet(JSON.parse(e.data)); } catch {} };
+  ws.onclose = () => { peerOnline = false; toast('Terputus dari host. Mencoba lagi…', 3000); setTimeout(() => reconnectGuest(ip), 2000); };
+  ws.onerror = () => {};
+  peerOnline = true;
+  ws.send(JSON.stringify({ t: 'ready' }));
+  keepAwake();
+}
+async function reconnectGuest(ip){
+  if (mode !== 'guest' || (ws && ws.readyState === 1)) return;
+  try { attachGuest(ip, await probe(ip, 2500)); toast('Tersambung lagi'); }
+  catch { setTimeout(() => reconnectGuest(ip), 2500); }
+}
+async function joinAuto(){
+  $('menuErr').textContent = '';
+  showOnly('wait'); $('waitTitle').textContent = 'Mencari host…'; $('waitIp').textContent = '…';
+  try {
+    const hit = await discover();
+    if (!hit) { showOnly('menu'); $('menuErr').textContent = 'Host tidak ditemukan. Pastikan host sudah menekan "Jadi host" dan kalian di Wi-Fi yang sama, atau ketik IP-nya.'; return; }
+    $('waitIp').textContent = hit.ip; attachGuest(hit.ip, hit.sock);
+  } catch {
+    showOnly('menu'); $('menuErr').textContent = 'Tidak bisa mendeteksi IP HP ini. Ketik IP host secara manual.';
+  }
+}
+async function joinIp(){
+  const ip = $('ipInput').value.trim();
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) { $('menuErr').textContent = 'Format IP salah.'; return; }
+  $('menuErr').textContent = '';
+  showOnly('wait'); $('waitTitle').textContent = 'Menyambung…'; $('waitText').textContent = ''; $('waitIp').textContent = ip;
+  try { attachGuest(ip, await probe(ip, 4000)); }
+  catch { showOnly('menu'); $('menuErr').textContent = 'Tidak bisa tersambung ke ' + ip; }
+}
+async function keepAwake(){ try { if (navigator.wakeLock) await navigator.wakeLock.request('screen'); } catch {} }
+
+// ---------- jalannya permainan ----------
+function startLocal(){ mode = 'local'; me = 0; G = newGame(); peerOnline = true; showOnly('game'); loadHole(0); updateHud(); }
+function restartGame(fromNet){
+  clearTimeout(advanceTimer); G = newGame(); localRolling = remoteRolling = false;
+  $('score').classList.add('hidden'); loadHole(0); updateHud();
+  if (!fromNet) send({ t: 'restart' });
+}
+function shoot(dx, dz, power){
+  const p = G.turn, sp = MAX_SPEED * Math.max(0.12, power);
+  sim = { x: G.ball[p].x, z: G.ball[p].z, vx: dx*sp, vz: dz*sp };
+  G.strokes[p]++; G.phase = 'roll'; localRolling = true; lastPosSent = 0;
+  send({ t: 'shot', p, strokes: G.strokes[p] });
+  updateHud();
+}
+function finishLocal(holed){
+  localRolling = false;
+  const p = G.turn, x = sim.x, z = sim.z;
+  send({ t: 'end', p, x, z, holed });
+  applyEnd(p, x, z, holed);
+}
+function applyEnd(p, x, z, holed){
+  G.ball[p] = holed ? { x: course.hole[0], z: course.hole[1] } : { x, z };
+  if (holed) G.holed[p] = true;
+  if (holed || G.strokes[p] >= MAX_STROKES) G.done[p] = true;
+  G.phase = 'aim';
+  const o = 1 - p;
+  if (G.done[0] && G.done[1]) {
+    G.phase = 'between';
+    G.scores[0][G.hole] = G.strokes[0]; G.scores[1][G.hole] = G.strokes[1];
+    showHoleScore(); scheduleAdvance();
+  } else {
+    G.turn = !G.done[o] ? o : p;
+    if (G.done[p] && p === G.turn) { /* p sudah selesai: tidak mungkin */ }
+  }
+  syncMeshesAfter(p, holed);
+  updateHud();
+}
+function syncMeshesAfter(p, holed){
+  if (holed) { ballMeshes[p].userData.sink = 1; }
+  else ballMeshes[p].position.set(G.ball[p].x, BALL_R, G.ball[p].z);
+}
+function scheduleAdvance(){
+  clearTimeout(advanceTimer);
+  const h = G.hole;
+  advanceTimer = setTimeout(() => { if (G && G.hole === h && G.phase === 'between') advanceHole(); }, 4200);
+}
+function advanceHole(){
+  $('score').classList.add('hidden');
+  if (G.hole >= COURSES.length - 1) { G.phase = 'over'; showFinal(); updateHud(); return; }
+  const h = G.hole, s0 = G.strokes[0], s1 = G.strokes[1];
+  const first = s0 < s1 ? 0 : s1 < s0 ? 1 : 1 - G.first;
+  G.hole++; G.first = first; G.turn = first; G.phase = 'aim';
+  G.strokes = [0,0]; G.done = [false,false]; G.holed = [false,false];
+  const c = COURSES[G.hole]; G.ball = [{x:c.tee[0], z:c.tee[1]}, {x:c.tee[0], z:c.tee[1]}];
+  loadHole(G.hole); updateHud();
+}
+function scoreRows(upto){
+  let rows = '<tr><th>Lubang</th><th>Par</th><th>' + nameOf(0) + '</th><th>' + nameOf(1) + '</th></tr>';
+  let t = [0,0];
+  for (let i = 0; i <= upto; i++) {
+    const a = G.scores[0][i], b = G.scores[1][i]; if (a == null) continue;
+    t[0] += a; t[1] += b;
+    rows += `<tr><td>${i+1}</td><td>${COURSES[i].par}</td><td>${a}</td><td>${b}</td></tr>`;
+  }
+  rows += `<tr><th>Total</th><th></th><th>${t[0]}</th><th>${t[1]}</th></tr>`;
+  return { rows, t };
+}
+function showHoleScore(){
+  const last = G.hole === COURSES.length - 1;
+  const { rows } = scoreRows(G.hole);
+  $('scoreTitle').textContent = `Lubang ${G.hole+1} selesai`;
+  $('scoreTable').innerHTML = rows;
+  $('scoreNote').textContent = last ? 'Menghitung hasil akhir…' : 'Lubang berikutnya sebentar lagi…';
+  $('scoreBtns').innerHTML = '';
+  $('score').classList.remove('hidden');
+}
+function showFinal(){
+  const { rows, t } = scoreRows(COURSES.length - 1);
+  const w = t[0] < t[1] ? 0 : t[1] < t[0] ? 1 : -1;
+  $('scoreTitle').textContent = w < 0 ? 'Seri!' : (mode === 'local' ? nameOf(w) + ' menang!' : (w === me ? 'Kamu menang! 🏆' : 'Lawan menang'));
+  $('scoreTable').innerHTML = rows;
+  $('scoreNote').textContent = 'Skor lebih kecil lebih baik.';
+  $('scoreBtns').innerHTML = '<button id="bAgain">Main lagi</button><button id="bMenu" class="ghost">Menu</button>';
+  $('bAgain').onclick = () => restartGame(false);
+  $('bMenu').onclick = () => location.reload();
+  $('score').classList.remove('hidden');
+}
+
+// ---------- input bidik ----------
+const MAXPULL = 170;
+function aimFromDrag(dx, dy){
+  const s = Math.sin(yaw), c = Math.cos(yaw);
+  let wx = dx*c + dy*s, wz = -dx*s + dy*c;          // arah tarikan di dunia
+  const pull = Math.hypot(dx, dy);
+  const L = Math.hypot(wx, wz) || 1;
+  return { dirx: -wx/L, dirz: -wz/L, power: Math.min(1, pull / MAXPULL) };
+}
+function setAimVisual(a){
+  if (!a || a.power < 0.04) { aimGroup.visible = false; $('pwrFill').style.width = '0'; return; }
+  const p = G.turn, len = 0.8 + a.power * 5.5;
+  aimGroup.position.set(G.ball[p].x, 0.08, G.ball[p].z);
+  aimGroup.rotation.y = Math.atan2(a.dirx, a.dirz);
+  aimGroup.getObjectByName('shaft').scale.z = len; aimGroup.getObjectByName('shaft').position.z = len/2 + 0.3;
+  aimGroup.getObjectByName('head').position.z = len + 0.55;
+  aimGroup.visible = true;
+  $('pwrFill').style.width = Math.round(a.power*100) + '%';
+}
+const cv = () => $('c');
+function bindInput(){
+  const c = cv();
+  c.addEventListener('pointerdown', e => {
+    if (!canShoot()) return;
+    if (drag) { drag = null; aim = null; setAimVisual(null); return; }      // jari kedua: batal
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY }; c.setPointerCapture(e.pointerId);
+  });
+  c.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    aim = aimFromDrag(e.clientX - drag.x, e.clientY - drag.y); setAimVisual(aim);
+  });
+  const end = e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const a = aim; drag = null; aim = null; setAimVisual(null);
+    if (e.type === 'pointerup' && a && a.power > 0.07 && canShoot()) shoot(a.dirx, a.dirz, a.power);
+  };
+  c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end);
+  const rot = d => () => { yaw += d; };
+  $('bL').onclick = rot(0.4); $('bR').onclick = rot(-0.4);
+  $('bZ').onclick = () => { zoomFar = !zoomFar; };
+}
+
+// ---------- loop ----------
+let last = performance.now(), posAcc = 0;
+function frame(now){
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (G && course) {
+    if (localRolling && sim) {
+      const n = Math.max(1, Math.round(dt / DT));
+      for (let i = 0; i < n; i++) {
+        const r = step(sim, course, segs);
+        if (r !== 'rolling') { ballMeshes[G.turn].position.set(sim.x, BALL_R, sim.z); finishLocal(r === 'holed'); break; }
+      }
+      if (localRolling) {
+        ballMeshes[G.turn].position.set(sim.x, BALL_R, sim.z);
+        posAcc += dt; if (posAcc > 0.06) { posAcc = 0; send({ t: 'pos', x: sim.x, z: sim.z }); }
+      }
+    } else if (remoteRolling && remoteT) {
+      const m = ballMeshes[G.turn], k = Math.min(1, dt * 14);
+      m.position.x += (remoteT.x - m.position.x) * k; m.position.z += (remoteT.z - m.position.z) * k;
+    }
+    for (let p = 0; p < 2; p++) {                              // animasi masuk lubang
+      const m = ballMeshes[p];
+      if (m.userData.sink) {
+        m.userData.sink = Math.max(0, m.userData.sink - dt * 3);
+        m.position.x += (course.hole[0] - m.position.x) * 0.3; m.position.z += (course.hole[1] - m.position.z) * 0.3;
+        m.position.y = BALL_R - (1 - m.userData.sink) * 0.4; m.scale.setScalar(Math.max(0.05, m.userData.sink));
+        if (m.userData.sink === 0) { m.visible = false; m.userData.sink = 0; }
+      }
+    }
+    updateCamera(dt);
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------- mulai ----------
+function init(){
+  initThree(); bindInput();
+  $('ipInput').value = lsGet('golf:ip') || '';
+  $('btnHost').onclick = startHost;
+  $('btnFind').onclick = joinAuto;
+  $('btnIp').onclick = joinIp;
+  $('btnLocal').onclick = startLocal;
+  $('btnCancel').onclick = () => location.reload();
+  if (!findPlugin()) $('menuErr').textContent = 'Catatan: mode LAN hanya jalan di aplikasi (APK). Di browser, pakai mode Latihan.';
+  requestAnimationFrame(frame);
+}
+init();
+</script>
+</body>
+</html>
